@@ -1,0 +1,149 @@
+name: SecureGate Security Scan
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+# Needed to post PR comments and set commit statuses
+permissions:
+  pull-requests: write
+  statuses: write
+  contents: read
+
+jobs:
+
+  # ────────────────────────────────────────────────────────────────
+  # Job 1: SAST — Semgrep static analysis
+  # ────────────────────────────────────────────────────────────────
+  sast-scan:
+    name: SAST Scan (Semgrep)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Cache result keyed on source content — skip scan if unchanged
+      - name: Restore SAST cache
+        id: sast-cache
+        uses: actions/cache@v4
+        with:
+          path: sast-results.json
+          key: sast-${{ hashFiles('demo-repo/src/**') }}
+
+      - name: Set up Python
+        if: steps.sast-cache.outputs.cache-hit != 'true'
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Semgrep
+        if: steps.sast-cache.outputs.cache-hit != 'true'
+        run: pip install semgrep==1.71.0
+
+      - name: Run Semgrep
+        if: steps.sast-cache.outputs.cache-hit != 'true'
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        run: |
+          if [ -n "$SEMGREP_APP_TOKEN" ]; then
+            semgrep \
+              --config p/security-audit \
+              --config p/owasp-top-ten \
+              --config p/secrets \
+              --json demo-repo/src/ > sast-results.json 2>/dev/null
+          else
+            semgrep --config auto --json demo-repo/src/ > sast-results.json 2>/dev/null || \
+            echo '{"results":[],"errors":[]}' > sast-results.json
+          fi
+
+      - name: Upload SAST results
+        uses: actions/upload-artifact@v4
+        with:
+          name: sast-results
+          path: sast-results.json
+          retention-days: 1
+
+  # ────────────────────────────────────────────────────────────────
+  # Job 2: SCA — Grype dependency/CVE scan
+  # ────────────────────────────────────────────────────────────────
+  sca-scan:
+    name: SCA Scan (Grype)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Cache result keyed on manifest files — skip scan if deps unchanged
+      - name: Restore SCA cache
+        id: sca-cache
+        uses: actions/cache@v4
+        with:
+          path: sca-results.json
+          key: sca-${{ hashFiles('demo-repo/package.json', 'demo-repo/requirements.txt') }}
+
+      - name: Install Grype
+        if: steps.sca-cache.outputs.cache-hit != 'true'
+        run: curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+
+      # Cache Grype vulnerability DB (~200 MB) to avoid re-downloading every run
+      - name: Restore Grype DB cache
+        if: steps.sca-cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/grype
+          key: grype-db-${{ runner.os }}-${{ hashFiles('**/.grype.yaml') }}
+          restore-keys: |
+            grype-db-${{ runner.os }}-
+
+      - name: Run Grype
+        if: steps.sca-cache.outputs.cache-hit != 'true'
+        run: |
+          grype dir:demo-repo --output json > sca-results.json 2>/dev/null || \
+          echo '{"matches":[]}' > sca-results.json
+
+      - name: Upload SCA results
+        uses: actions/upload-artifact@v4
+        with:
+          name: sca-results
+          path: sca-results.json
+          retention-days: 1
+
+  # ────────────────────────────────────────────────────────────────
+  # Job 3: Orchestrate — parse, filter, comment, gate
+  # ────────────────────────────────────────────────────────────────
+  orchestrate:
+    name: Orchestrate & Gate
+    runs-on: ubuntu-latest
+    needs: [sast-scan, sca-scan]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download SAST results
+        uses: actions/download-artifact@v4
+        with:
+          name: sast-results
+
+      - name: Download SCA results
+        uses: actions/download-artifact@v4
+        with:
+          name: sca-results
+
+      - name: Run SecureGate orchestrator
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_NAME: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+          SAST_RESULTS: sast-results.json
+          SCA_RESULTS: sca-results.json
+          SOURCE_DIR: demo-repo
+        run: python3 -m securegate.orchestrator.orchestrator

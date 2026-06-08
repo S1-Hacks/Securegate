@@ -1,4 +1,3 @@
-cat > demo-repo/src/app.py << 'EOF'
 import requests
 from PIL import Image
 
@@ -13,4 +12,3 @@ def resize_image(path):
     img = Image.open(path)
     img = img.resize((800, 600))
     return img
-EOF
