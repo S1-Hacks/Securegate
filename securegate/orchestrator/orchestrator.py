@@ -110,8 +110,15 @@ def run(
 
     # ── 5. Set commit status / merge gate ─────────────────────────────────────
     if _HAS_BOT:
-        blocked = set_commit_status(actionable, commit_sha)
-        return 1 if blocked else 0
+        from securegate.orchestrator.merge_gate import evaluate, load_policy
+        set_commit_status(all_findings, commit_sha)
+        policy = load_policy()
+        violations = evaluate(actionable, policy)
+        if violations:
+            print(f"[securegate] MERGE BLOCKED — {len(violations)} blocking finding(s).")
+            return 1
+        print("[securegate] Merge gate: PASSED.")
+        return 0
 
     # Fallback gate: block if any CRITICAL or HIGH actionable finding
     severities = {f.severity for f in actionable}
