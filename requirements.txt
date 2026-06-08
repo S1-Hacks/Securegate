@@ -1,6 +1,4 @@
-cat > requirements.txt << 'EOF'
 PyGithub==2.3.0
 pycg==0.0.7
 requests==2.31.0
 pyyaml==6.0.1
-EOF
