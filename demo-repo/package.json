@@ -1,4 +1,3 @@
-cat > demo-repo/package.json << 'EOF'
 {
   "name": "securegate-demo",
   "version": "1.0.0",
@@ -10,4 +9,3 @@ cat > demo-repo/package.json << 'EOF'
     "axios": "0.21.1"
   }
 }
-EOF
