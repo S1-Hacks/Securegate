@@ -1,9 +1,14 @@
 """Formats list[Finding] into a Markdown PR comment for SecureGate."""
 
+import re
 from datetime import datetime, timezone
 from typing import List, Optional
 
 from securegate.finding_schema import Finding
+from securegate.reachability.cve_function_map import (
+    get_functions_for_cve,
+    get_functions_for_package,
+)
 
 # Marker so bot.py can find and update its existing comment on re-scan.
 SECUREGATE_COMMENT_TAG = "<!-- securegate-bot -->"
@@ -103,6 +108,108 @@ def _summary_line(actionable: List[Finding]) -> str:
     return " · ".join(parts) if parts else "no actionable findings"
 
 
+def _mid(text: str) -> str:
+    """Sanitize text into a valid Mermaid node ID."""
+    return re.sub(r"[^A-Za-z0-9_]", "_", text)
+
+
+def _mermaid_callgraph(
+    actionable: List[Finding],
+    suppressed: List[Finding],
+) -> str:
+    """Generate a Mermaid graph showing reachable vs suppressed vulnerable functions."""
+    lines = [
+        "```mermaid",
+        "graph LR",
+        "    classDef pkgNode  fill:#495057,color:#fff,stroke:#343a40",
+        "    classDef critical fill:#dc3545,color:#fff,stroke:#dc3545",
+        "    classDef high     fill:#fd7e14,color:#fff,stroke:#fd7e14",
+        "    classDef medium   fill:#ffc107,color:#000,stroke:#ffc107",
+        "    classDef suppNode fill:#28a745,color:#fff,stroke:#28a745",
+        "    classDef sastNode fill:#6f42c1,color:#fff,stroke:#6f42c1",
+    ]
+
+    seen_pkg_nodes: set = set()
+
+    def pkg_node(finding: Finding) -> str:
+        """Emit a package node once and return its ID."""
+        nid = _mid(f"pkg_{finding.package}_{finding.installed_version}")
+        if nid not in seen_pkg_nodes:
+            seen_pkg_nodes.add(nid)
+            label = f"{finding.package}\\n@{finding.installed_version}"
+            lines.append(f'    {nid}["{label}"]:::pkgNode')
+        return nid
+
+    # ── Reachable SCA findings ────────────────────────────────────────────────
+    reachable_sca = [f for f in actionable if f.source == "SCA"]
+    if reachable_sca:
+        lines.append("    subgraph REACHABLE[\"🔴  Reachable — Action Required\"]")
+        for f in reachable_sca:
+            pnid = pkg_node(f)
+            funcs = get_functions_for_cve(f.id or "") or \
+                    get_functions_for_package(f.package or "")
+            cve_nid = _mid(f"cve_{f.id}")
+            sev_cls = "critical" if f.severity == "CRITICAL" else \
+                      "high" if f.severity == "HIGH" else "medium"
+            if funcs:
+                for fn in funcs:
+                    fn_nid = _mid(f"fn_reach_{f.package}_{fn}")
+                    lines.append(f'    {fn_nid}(["{fn}()\\n🔴 called"]):::{sev_cls}')
+                    lines.append(f"    {pnid} --> {fn_nid}")
+                    lines.append(
+                        f'    {fn_nid} --> {cve_nid}["{f.id}\\n{f.severity}"]:::{sev_cls}'
+                    )
+            else:
+                lines.append(
+                    f'    {pnid} --> {cve_nid}["{f.id}\\n{f.severity}"]:::{sev_cls}'
+                )
+        lines.append("    end")
+
+    # ── Suppressed SCA findings ───────────────────────────────────────────────
+    suppressed_sca = [f for f in suppressed if f.source == "SCA"]
+    if suppressed_sca:
+        lines.append("    subgraph SUPPRESSED[\"✅  Suppressed — Not Reachable\"]")
+        for f in suppressed_sca:
+            pnid = pkg_node(f)
+            funcs = get_functions_for_cve(f.id or "") or \
+                    get_functions_for_package(f.package or "")
+            cve_nid = _mid(f"cve_sup_{f.id}")
+            if funcs:
+                for fn in funcs:
+                    fn_nid = _mid(f"fn_sup_{f.package}_{fn}")
+                    lines.append(f'    {fn_nid}(["{fn}()\\n✅ not called"]):::suppNode')
+                    lines.append(f"    {pnid} -.-> {fn_nid}")
+                    lines.append(
+                        f'    {fn_nid} -.-> {cve_nid}["{f.id}\\nSuppressed"]:::suppNode'
+                    )
+            else:
+                lines.append(
+                    f'    {pnid} -.-> {cve_nid}["{f.id}\\nSuppressed"]:::suppNode'
+                )
+        lines.append("    end")
+
+    # ── SAST findings ─────────────────────────────────────────────────────────
+    sast = [f for f in actionable if f.source == "SAST"]
+    if sast:
+        lines.append("    subgraph SAST_BOX[\"⚡  SAST — Code Flaws\"]")
+        for f in sast:
+            short_file = (f.file_path or "unknown").split("/")[-1]
+            file_nid = _mid(f"sast_file_{f.file_path}_{f.line_number}")
+            rule_nid = _mid(f"sast_rule_{f.id}")
+            sev_cls = "critical" if f.severity == "CRITICAL" else \
+                      "high" if f.severity == "HIGH" else "sastNode"
+            lines.append(
+                f'    {file_nid}["{short_file}\\nline {f.line_number}"]:::sastNode'
+            )
+            lines.append(
+                f'    {file_nid} --> {rule_nid}["{f.severity} code flaw"]:::{sev_cls}'
+            )
+        lines.append("    end")
+
+    lines.append("```")
+    return "\n".join(lines)
+
+
 def format_pr_comment(
     actionable: List[Finding],
     suppressed: List[Finding],
@@ -147,6 +254,16 @@ def format_pr_comment(
         )
         lines.append("")
         lines.append(_table(suppressed))
+        lines.append("")
+        lines.append("</details>")
+
+    # ── Call graph visualisation ──────────────────────────────────────────────
+    if actionable or suppressed:
+        lines.append("")
+        lines.append("<details>")
+        lines.append("<summary>🕸️ Reachability Call Graph</summary>")
+        lines.append("")
+        lines.append(_mermaid_callgraph(actionable, suppressed))
         lines.append("")
         lines.append("</details>")
 
