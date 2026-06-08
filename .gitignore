@@ -1,0 +1,14 @@
+cat > .gitignore << 'EOF'
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+.venv/
+venv/
+*.json.bak
+sast-results/
+sca-results/
+/tmp/
+.DS_Store
+node_modules/
+EOF
