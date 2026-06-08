@@ -1,4 +1,3 @@
-cat > demo-repo/src/app.js << 'EOF'
 const express = require('express');
 const _ = require('lodash');
 const app = express();
@@ -24,4 +23,3 @@ app.get('/users', (req, res) => {
 });
 
 app.listen(3000, () => console.log('Demo app running on port 3000'));
-EOF

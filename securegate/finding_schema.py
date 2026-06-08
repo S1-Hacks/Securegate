@@ -1,4 +1,3 @@
-cat > securegate/finding_schema.py << 'EOF'
 from dataclasses import dataclass
 from typing import Optional
 
@@ -16,4 +15,3 @@ class Finding:
     description: str
     reachable: Optional[bool]      # None=unknown, True=reachable, False=suppressed
     cve_url: Optional[str]
-EOF

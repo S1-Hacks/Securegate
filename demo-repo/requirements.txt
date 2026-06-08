@@ -1,5 +1,3 @@
-cat > demo-repo/requirements.txt << 'EOF'
 requests==2.25.0
 Pillow==8.2.0
 jinja2==2.11.2
-EOF
