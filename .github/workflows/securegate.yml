@@ -40,22 +40,21 @@ jobs:
         if: steps.sast-cache.outputs.cache-hit != 'true'
         run: pip install semgrep==1.71.0
 
-      - name: Run Semgrep (authenticated)
-        if: steps.sast-cache.outputs.cache-hit != 'true' && secrets.SEMGREP_APP_TOKEN != ''
+      - name: Run Semgrep
+        if: steps.sast-cache.outputs.cache-hit != 'true'
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
         run: |
-          semgrep \
-            --config p/security-audit \
-            --config p/owasp-top-ten \
-            --config p/secrets \
-            --json demo-repo/src/ > sast-results.json 2>/dev/null
-
-      - name: Run Semgrep (unauthenticated fallback)
-        if: steps.sast-cache.outputs.cache-hit != 'true' && secrets.SEMGREP_APP_TOKEN == ''
-        run: |
-          semgrep --config auto --json demo-repo/src/ > sast-results.json 2>/dev/null || \
-          echo '{"results":[],"errors":[]}' > sast-results.json
+          if [ -n "$SEMGREP_APP_TOKEN" ]; then
+            semgrep \
+              --config p/security-audit \
+              --config p/owasp-top-ten \
+              --config p/secrets \
+              --json demo-repo/src/ > sast-results.json 2>/dev/null
+          else
+            semgrep --config auto --json demo-repo/src/ > sast-results.json 2>/dev/null || \
+            echo '{"results":[],"errors":[]}' > sast-results.json
+          fi
 
       - name: Upload SAST results
         uses: actions/upload-artifact@v4
