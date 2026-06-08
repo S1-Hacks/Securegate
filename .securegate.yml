@@ -3,7 +3,7 @@ block_on_critical: true
 block_on_high: true
 block_on_medium: false
 
-# Add CVE IDs here to permanently suppress
+# Add CVE / rule IDs here to permanently suppress (never gate on them)
 suppress: []
 
 # PR label that bypasses the merge gate
