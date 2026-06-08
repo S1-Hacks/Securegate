@@ -4,17 +4,16 @@ const app = express();
 
 app.use(express.json());
 
-// FIXED: parameterized query via placeholder — no SQL injection
+// SEEDED VULN 1: SQL Injection — Semgrep will flag this
 app.get('/user', (req, res) => {
-  const userId = parseInt(req.query.id, 10);
-  if (isNaN(userId)) return res.status(400).json({ error: 'Invalid id' });
-  // query would use prepared statement: SELECT * FROM users WHERE id = ?
-  res.json({ userId });
+  const query = "SELECT * FROM users WHERE id = " + req.query.id;
+  console.log("Running query:", query);
+  res.json({ query });
 });
 
-// FIXED: secrets moved to environment variables
-const AWS_KEY_ID = process.env.AWS_ACCESS_KEY_ID;
-const DB_PASSWORD = process.env.DB_PASSWORD;
+// SEEDED VULN 2: Hardcoded secret — Semgrep will flag this
+const AWS_SECRET = "AKIAIOSFODNN7EXAMPLE";
+const DB_PASSWORD = "supersecretpassword123";
 
 // SAFE lodash usage — _.template() NOT called, so lodash CVE is unreachable
 app.get('/users', (req, res) => {
@@ -23,10 +22,10 @@ app.get('/users', (req, res) => {
   res.json(sorted);
 });
 
-// FIXED: eval() removed — parse expression safely
+// SEEDED VULN 3: eval() with user input — Semgrep will flag this
 app.get('/eval', (req, res) => {
-  const value = parseFloat(req.query.expr);
-  res.json({ result: isNaN(value) ? null : value });
+  const result = eval(req.query.expr);
+  res.json({ result });
 });
 
 app.listen(3000, () => console.log('Demo app running on port 3000'));

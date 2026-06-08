@@ -1,19 +1,17 @@
-import subprocess
 import requests
 from PIL import Image
 
-
-# FIXED: use subprocess with a list — no shell injection possible
+# SEEDED VULN: Command injection via user input
 def get_user_data(username):
-    subprocess.run(["curl", "https://api.example.com/user/" + username], check=False)
+    import os
+    # Semgrep flags this — user input passed to os.system
+    os.system("curl https://api.example.com/user/" + username)
 
-
-# FIXED: parameterized query — no SQL injection
+# SEEDED VULN 2: SQL injection via string concatenation
 def get_user_by_id(user_id, cursor):
-    query = "SELECT * FROM users WHERE id = %s"
-    cursor.execute(query, (user_id,))
+    query = "SELECT * FROM users WHERE id = '" + user_id + "'"
+    cursor.execute(query)
     return cursor.fetchall()
-
 
 # SAFE Pillow usage — vulnerable Pillow methods not called
 def resize_image(path):
