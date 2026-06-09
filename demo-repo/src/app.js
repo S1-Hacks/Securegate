@@ -22,4 +22,10 @@ app.get('/users', (req, res) => {
   res.json(sorted);
 });
 
+// SEEDED VULN 3: eval() with user input — Semgrep will flag this
+app.get('/eval', (req, res) => {
+  const result = eval(req.query.expr);
+  res.json({ result });
+});
+
 app.listen(3000, () => console.log('Demo app running on port 3000'));
