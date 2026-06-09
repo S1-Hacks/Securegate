@@ -16,3 +16,5 @@ pip install -r requirements.txt
 ```
 securegate/ ├── finding_schema.py # Shared data contract — read before coding ├── parsers/ # Dev 1 ├── reachability/ # Dev 2 ├── bot/ # Dev 3 ├── orchestrator/ # Dev 1 + Dev 2 (Day 2 integration) demo-repo/ # Seeded vuln app for scanning .github/workflows/ # Dev 1 .securegate.yml # Policy config — Dev 3
 ```
+
+Testing demo
